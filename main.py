@@ -1,44 +1,16 @@
 #!/usr/bin/env python2
 
 import curses
+from linewindows import create_hline_window, create_vline_window
 from time import sleep
 from random import randint
-from string import ascii_letters
+from textwrap import fill
 
-from multiprocessing import Manager
+from multiprocessing import Manager, Process
 
 manager = Manager()
 # Joe holds all the variables for the threads
 joe = manager.Namespace()
-
-def create_hline_window(y_start, x_start, length):
-    """Create a window with a single hline and return prepared window."""
-    line = curses.newwin(
-        1,
-        length+1,
-        y_start,
-        x_start,
-    )
-
-    line.hline(0,0,"#", length)
-    line.noutrefresh()
-
-    return line
-
-
-def create_vline_window(y_start, x_start, height):
-    """Create a window with a single vline and return prepared window."""
-    line = curses.newwin(
-        height+1,
-        1,
-        y_start,
-        x_start,
-    )
-
-    line.vline(0,0,"#", height)
-    line.noutrefresh()
-
-    return line
 
 
 stdscr = curses.initscr()
@@ -48,57 +20,88 @@ stdscr.keypad(1)
 stdscr.nodelay(1)
 curses.curs_set(0)
 
-begin_vec = {
-    'x' : 0,
-    'y' : 0,
-}
-size_vec = {
-    'x' : 50,
-    'y' : 80,
-}
+# max_ticker_length = window_size_x-3
+import gspread
+from google_credentials import username, password
+gc = gspread.login(username, password)
 
-window_size_x = 80
-window_size_y = 24
+def parse_menu(spreadsheet_title='terminal_menus', wks_title='basic_menu', max_width=74):
+    """Parses the given spreadsheet and output the menu in the form of a string and a dict"""
+    
+    terminal_menus = gc.open(spreadsheet_title)
+    current_menu_list = terminal_menus.worksheet(wks_title).get_all_values()
 
-clock_w = 8
-clock_h = 1
-news_ticker_w = window_size_x - 2 - clock_w
-news_ticker_h = 1
+    current_menu_dict = {}
+    current_menu_headers = current_menu_list.pop(0)
+    current_menu_headers.pop(0)
+    for i in current_menu_list:
+        current_menu_dict[i[0]] = {}
+        for j, k in enumerate(current_menu_headers, start=1):
+            current_menu_dict[i[0]][k] = i[j]
 
-clock_y = 1
-clock_x = news_ticker_w + 1
-news_ticker_y = 1
-news_ticker_x = 1
+    return_string = ""
+    return_string = fill(
+                current_menu_dict['description']['description'], width=max_width
+            ) + "\n"
+    current_menu_options = [x for x in current_menu_dict.keys() if x.find('option_')!=-1]
+    # TODO get it to capture the number from the key
+    current_menu_options.sort()
+    for i, j in enumerate(current_menu_options, start=1):
+        return_string += str(i)  + ") " + current_menu_dict[j]['description'] + "\n"
+
+    return return_string, current_menu_dict
 
 
-clock = curses.newwin(
-    clock_h,
-    clock_w,
-    clock_y,
-    clock_x,
-)
 
 
-news_ticker = curses.newwin(
-    news_ticker_h,
-    news_ticker_w,
-    news_ticker_y,
-    news_ticker_x,
-)
-
-from multiprocessing import Process
-
-max_ticker_length = window_size_x-3
-
-loading_news = " "*news_ticker_w
-for i in range(5):
-    loading_news += "Loading latest news..." + " "*news_ticker_w
-joe.current_news = loading_news
-
-def gui_that_ticks(_news_ticker, _clock, _joe):
+def gui_that_ticks(_joe):
     """Gui refreshing."""
 
-    iter = 1
+    # Setting up window dimesions
+    window_size_x = 80
+    window_size_y = 24
+
+    clock_w = 8
+    clock_h = 1
+    news_ticker_w = window_size_x - 2 - clock_w
+    news_ticker_h = 1
+
+    clock_y = 1
+    clock_x = news_ticker_w + 1
+    news_ticker_y = 1
+    news_ticker_x = 1
+
+    main_term_x = 2
+    main_term_y = 3
+    main_term_w = window_size_x - 2*main_term_x + 1
+    main_term_h = window_size_y - main_term_y - 1
+
+    clock = curses.newwin(clock_h, clock_w, clock_y, clock_x,)
+    news_ticker = curses.newwin(news_ticker_h, news_ticker_w, news_ticker_y, news_ticker_x,)
+    main_term = curses.newwin(main_term_h, main_term_w, main_term_y, main_term_x,)
+    
+
+    loading_news = " "*news_ticker_w
+    for i in range(5):
+        loading_news += "Loading latest news..." + " "*news_ticker_w
+    _joe.current_news = loading_news
+
+
+
+    # terminal_menus = gc.open('terminal_menus')
+    # current_menu_list = terminal_menus.worksheet('basic_menu').get_all_values()
+
+    # current_news_sheet = gc.open('rpg_news')
+
+    # current_menu_dict = {}
+    # current_menu_headers = current_menu_list.pop(0)
+    # current_menu_headers.pop(0)
+    # for i in current_menu_list:
+    #     current_menu_dict[i[0]] = {}
+    #     for j, k in enumerate(current_menu_headers, start=1):
+    #         current_menu_dict[i[0]][k] = i[j]
+                
+    iter = 0
     # global current_news
     news = _joe.current_news
     previous_news = _joe.current_news
@@ -111,8 +114,12 @@ def gui_that_ticks(_news_ticker, _clock, _joe):
     curses.doupdate()
     
     # Add # before the clock.
-    _clock.addch("#")
+    clock.addch("#")
 
+    # This string should be huge. But never wider than 76 characters
+    main_term_string = ""
+    main_term.addstr(0, 0, main_term_string)
+    visible_menu_dict = {}
     while True:
         c = stdscr.getch()
         if c == ord('q'):
@@ -121,6 +128,56 @@ def gui_that_ticks(_news_ticker, _clock, _joe):
             curses.echo()
             curses.endwin()
             break
+        elif c == ord('h'):
+            main_term_string, visible_menu_dict = parse_menu()
+        for i in range(1,10):
+            if c == ord(str(i)):
+                try:
+                    main_term.erase()
+                    main_term_string, visible_menu_dict = parse_menu(
+                        wks_title=visible_menu_dict['option_'+str(i)]['action']
+                    )
+                except KeyError:
+                    pass
+
+        # elif c == ord('1'):
+        #     try:
+        #         main_term_string, visible_menu_dict = parse_menu(
+        #             wks_title=visible_menu_dict['option_1']['action']
+        #         )
+        #     except KeyError:
+        #         pass
+        # elif c == ord('2'):
+        #     try:
+        #         main_term_string, visible_menu_dict = parse_menu(
+        #             wks_title=visible_menu_dict['option_2']['action']
+        #         )
+        #     except KeyError:
+        #         pass
+        # elif c == ord('3'):
+        #     try:
+        #         main_term_string, visible_menu_dict = parse_menu(
+        #             wks_title=visible_menu_dict['option_3']['action']
+        #         )
+        #     except KeyError:
+        #         pass
+        # elif c == ord('4'):
+        #     try:
+        #         main_term_string, visible_menu_dict = parse_menu(
+        #             wks_title=visible_menu_dict['option_4']['action']
+        #         )
+        #     except KeyError:
+        #         pass
+        # elif c == ord('5'):
+        #     try:
+        #         main_term_string, visible_menu_dict = parse_menu(
+        #             wks_title=visible_menu_dict['option_5']['action']
+        #         )
+        #     except KeyError:
+        #         pass            
+            
+        main_term.addstr(0, 0, main_term_string)
+        main_term.noutrefresh()
 
         lside_border.vline(0, 0, "#", window_size_y)
         lside_border.noutrefresh()
@@ -132,18 +189,20 @@ def gui_that_ticks(_news_ticker, _clock, _joe):
         rside_border.vline(0, 0, "#", window_size_y)
         rside_border.noutrefresh()
 
+
+        
         if iter % 10 == 0:
             time_hour = str(randint(10,99))
             time_minute = str(randint(10,99))
-            _clock.addstr(0, 2, time_hour + ":" + time_minute)
-            _clock.noutrefresh()
+            clock.addstr(0, 2, time_hour + ":" + time_minute)
+            clock.noutrefresh()
             
             pass
             
         if iter % 1 == 0:
             news = news[1:] + news[0]
-            _news_ticker.addstr(0,1,news[:news_ticker_w-2])
-            _news_ticker.noutrefresh()
+            news_ticker.addstr(0,1,news[:news_ticker_w-2])
+            news_ticker.noutrefresh()
 
         if iter % 100 == 0:
             latest_news = _joe.current_news.strip() + " "
@@ -151,7 +210,8 @@ def gui_that_ticks(_news_ticker, _clock, _joe):
                 news = latest_news
                 previous_news = latest_news
 
-        if iter == 999:
+        # 10 000 iterations means about 15 minutes
+        if iter == 9999:
             iter = 0
 
         curses.doupdate()
@@ -164,36 +224,49 @@ def gui_that_ticks(_news_ticker, _clock, _joe):
 print "Loading ODIN software..."
 # The main menu
 print "Connecting to ODIN..."
-import gspread
+
 print "Connected."
 
-from google_credentials import username, password
-gc = gspread.login(username, password)
-
-terminal_menus = gc.open('terminal_menus')
-current_menu = terminal_menus.worksheet('basic_menu').get_all_values()
-
-current_news_sheet = gc.open('rpg_news')
-
-gui_process = Process(target=gui_that_ticks, args=(news_ticker, clock, joe,))
+gui_process = Process(target=gui_that_ticks, args=(joe,))
 gui_process.start()
 
-while True:
-    current_news_list = current_news_sheet.worksheet('current_news').get_all_values()
-    tmp_list = []
-    for i in range(4):
-        # Take the first 3 news items and title from the first column
-        try:
-            tmp_list.append(current_news_list[i][0])
-        except IndexError:
-            pass
-    joe.current_news = " ".join(tmp_list)
+# def main_terminal_that_ticks(_joe):
+#     """Code for the main screen.
 
-    sleep(10)
+#     This should (eventually) only be responsible for filling the
+#     screen and doing animations. Network access should be farmed to a
+#     separate thread to allow for 'Loading...' etc. to be displayed on
+#     the screen (and avoid hanging).
+
+#     """
+
+
+
+#     while True:
+#         main_terminal.addstr(2, 2, str(randint(1,1999)))
+#         main_terminal.noutrefresh()
+#         curses.napms(100)
+
+# main_terminal_process = Process(target=main_terminal_that_ticks, args=(joe,))
+# main_terminal_process.start()
+
+
+# while True:
+#     current_news_list = current_news_sheet.worksheet('current_news').get_all_values()
+#     tmp_list = []
+#     for i in range(4):
+#         # Take the first 3 news items and title from the first column
+#         try:
+#             tmp_list.append(current_news_list[i][0])
+#         except IndexError:
+#             pass
+#     joe.current_news = " ".join(tmp_list)
+
+#     sleep(10)
 
 gui_process.join()
 
-gui_process.terminate()
+
 
 curses.nocbreak()
 stdscr.keypad(0)
