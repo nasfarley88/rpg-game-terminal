@@ -2,9 +2,9 @@
 
 import curses
 from linewindows import create_hline_window, create_vline_window
+from main_terminal import MainTerminal
 from time import sleep
 from random import randint
-from textwrap import fill
 
 from multiprocessing import Manager, Process
 
@@ -25,31 +25,7 @@ import gspread
 from google_credentials import username, password
 gc = gspread.login(username, password)
 
-def parse_menu(spreadsheet_title='terminal_menus', wks_title='basic_menu', max_width=74):
-    """Parses the given spreadsheet and output the menu in the form of a string and a dict"""
-    
-    terminal_menus = gc.open(spreadsheet_title)
-    current_menu_list = terminal_menus.worksheet(wks_title).get_all_values()
 
-    current_menu_dict = {}
-    current_menu_headers = current_menu_list.pop(0)
-    current_menu_headers.pop(0)
-    for i in current_menu_list:
-        current_menu_dict[i[0]] = {}
-        for j, k in enumerate(current_menu_headers, start=1):
-            current_menu_dict[i[0]][k] = i[j]
-
-    return_string = ""
-    return_string = fill(
-                current_menu_dict['description']['description'], width=max_width
-            ) + "\n"
-    current_menu_options = [x for x in current_menu_dict.keys() if x.find('option_')!=-1]
-    # TODO get it to capture the number from the key
-    current_menu_options.sort()
-    for i, j in enumerate(current_menu_options, start=1):
-        return_string += str(i)  + ") " + current_menu_dict[j]['description'] + "\n"
-
-    return return_string, current_menu_dict
 
 
 
@@ -78,7 +54,8 @@ def gui_that_ticks(_joe):
 
     clock = curses.newwin(clock_h, clock_w, clock_y, clock_x,)
     news_ticker = curses.newwin(news_ticker_h, news_ticker_w, news_ticker_y, news_ticker_x,)
-    main_term = curses.newwin(main_term_h, main_term_w, main_term_y, main_term_x,)
+    # main_term = curses.newwin(main_term_h, main_term_w, main_term_y, main_term_x,)
+    main_term = MainTerminal(main_term_h, main_term_w, main_term_y, main_term_x,)
     
 
     loading_news = " "*news_ticker_w
@@ -117,8 +94,8 @@ def gui_that_ticks(_joe):
     clock.addch("#")
 
     # This string should be huge. But never wider than 76 characters
-    main_term_string = ""
-    main_term.addstr(0, 0, main_term_string)
+    # main_term_string = ""
+    # main_term.addstr(0, 0, main_term_string)
     visible_menu_dict = {}
     while True:
         c = stdscr.getch()
@@ -129,55 +106,26 @@ def gui_that_ticks(_joe):
             curses.endwin()
             break
         elif c == ord('h'):
-            main_term_string, visible_menu_dict = parse_menu()
+            main_term.parse_menu()
+            pass
         for i in range(1,10):
             if c == ord(str(i)):
                 try:
-                    main_term.erase()
-                    main_term_string, visible_menu_dict = parse_menu(
-                        wks_title=visible_menu_dict['option_'+str(i)]['action']
+                    # main_term.erase()
+                    # main_term_string, visible_menu_dict = parse_menu(
+                    #     wks_title=visible_menu_dict['option_'+str(i)]['action']
+                    # )
+                    main_term.parse_menu(
+                        wks_title=main_term.current_menu_dict['option_' + str(i)]['action']
                     )
                 except KeyError:
+                    print "KeyError"
+                    curses.napms(1000)
                     pass
-
-        # elif c == ord('1'):
-        #     try:
-        #         main_term_string, visible_menu_dict = parse_menu(
-        #             wks_title=visible_menu_dict['option_1']['action']
-        #         )
-        #     except KeyError:
-        #         pass
-        # elif c == ord('2'):
-        #     try:
-        #         main_term_string, visible_menu_dict = parse_menu(
-        #             wks_title=visible_menu_dict['option_2']['action']
-        #         )
-        #     except KeyError:
-        #         pass
-        # elif c == ord('3'):
-        #     try:
-        #         main_term_string, visible_menu_dict = parse_menu(
-        #             wks_title=visible_menu_dict['option_3']['action']
-        #         )
-        #     except KeyError:
-        #         pass
-        # elif c == ord('4'):
-        #     try:
-        #         main_term_string, visible_menu_dict = parse_menu(
-        #             wks_title=visible_menu_dict['option_4']['action']
-        #         )
-        #     except KeyError:
-        #         pass
-        # elif c == ord('5'):
-        #     try:
-        #         main_term_string, visible_menu_dict = parse_menu(
-        #             wks_title=visible_menu_dict['option_5']['action']
-        #         )
-        #     except KeyError:
-        #         pass            
             
-        main_term.addstr(0, 0, main_term_string)
-        main_term.noutrefresh()
+        # main_term.addstr(0, 0, main_term_string)
+        # main_term.noutrefresh()
+        main_term.redraw()
 
         lside_border.vline(0, 0, "#", window_size_y)
         lside_border.noutrefresh()
