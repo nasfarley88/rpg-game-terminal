@@ -16,7 +16,8 @@ class MainTerminal:
                  main_menu_wks_title='basic_menu',):
         """Init function TODO this docstring."""
         print "trying to init the curses new window for MainTerminal."
-        self.main_term = curses.newwin(main_term_h, main_term_w, main_term_y, main_term_x)
+        self.main_term = curses.newwin(main_term_h, main_term_w,
+                                       main_term_y, main_term_x)
         print "made the new MainTerminal window"
         self.main_term_h = main_term_h
         self.main_term_w = main_term_w
