@@ -2,69 +2,23 @@ import curses
 import gspread
 from google_credentials import username, password
 from textwrap import fill
+from multiprocessing import Pipe, Process
+
+
+# TODO: Figure out how to terminate a thread that is waiting for input from a pipe.
 
 
 class MainTerminal:
     """Class to manage the loading and refreshing of the main terminal."""
 
-    def __init__(self,
-                 main_term_h,
-                 main_term_w,
-                 main_term_y,
-                 main_term_x,
-                 main_menu_ss_title='terminal_menus',
-                 main_menu_wks_title='basic_menu',):
-        """Init function TODO this docstring."""
-        print "trying to init the curses new window for MainTerminal."
-        self.main_term = curses.newwin(main_term_h, main_term_w,
-                                       main_term_y, main_term_x)
-        print "made the new MainTerminal window"
-        self.main_term_h = main_term_h
-        self.main_term_w = main_term_w
-
-        self.gc = gspread.login(username, password)
-        self.main_menu_ss_title = main_menu_ss_title
-        self.main_menu_wks_title = main_menu_wks_title
-        
-        self.current_ss_title = main_menu_ss_title
-        self.current_ss = self.gc.open(self.current_ss_title)
-        self.current_wks_title = self.main_menu_wks_title
-        
-        self.current_menu_dict = {}
-        self.current_menu_str = ""
-        
-    def parse_menu(
+    def _parse_menu(
             self,
-            wks_title=None,
-            ss_title=None,
-            max_width=None,
+            tmp_menu_list,
+            max_width,
     ):
-        """Parses the given spreadsheet and output the menu in the form of a string and a dict"""
+        """Parses the given spreadsheet and output the menu in the form of a dict and a str"""
 
-        pass
-
-        if wks_title == None:
-            wks_title = self.main_menu_wks_title
-        else:
-            self.current_wks_title = wks_title
-
-        if ss_title == None:
-            ss_title=self.main_menu_ss_title
-        elif ss_title != self.current_ss_title:
-            self.current_ss_title = ss_title
-            self.current_ss = gc.open(spreadsheet_title)
-        else:
-            # If the program is here, it should be because the
-            # ss_title was not defined, or its the same as the
-            # current_ss
-            pass
-
-        if max_width == None:
-            max_width = self.main_term_w-1
-            
-            
-        tmp_menu_list = self.current_ss.worksheet(self.current_wks_title).get_all_values()
-
+        
         tmp_menu_dict = {}
         tmp_menu_headers = tmp_menu_list.pop(0)
         tmp_menu_headers.pop(0)
@@ -84,24 +38,187 @@ class MainTerminal:
             tmp_str += str(i)  + ") " + tmp_menu_dict[j]['description'] + "\n"
 
         # Assign the new variables
-        self.current_menu_dict = tmp_menu_dict
-        self.current_menu_str = tmp_str
+        return (tmp_menu_dict, tmp_str)
+        # dict_input_pipe.send(tmp_menu_dict)
+        # str_input_pipe.send(tmp_str)
+
+        # self.curr_menu_dict = tmp_menu_dict
+        # self.curr_menu_str = tmp_str
+
+    
+    def menu_spreadsheet(
+            self,
+            ss_title_output_pipe,
+            wks_title_output_pipe,
+            curr_menu_dict_input_pipe,
+            curr_menu_str_input_pipe,
+            max_width=79,
+    ):
+
+        gc = gspread.login(username, password)
+        curr_ss_title = ""
+        curr_wks_title = ""
+        while True:
+            ss_title = ss_title_output_pipe.recv()
+            wks_title = wks_title_output_pipe.recv()
+
+
+            # If the spreadsheet title is different, load it up again
+            if ss_title != curr_ss_title:
+                curr_ss = gc.open(ss_title)
+
+            if wks_title != curr_wks_title:
+                curr_wks = curr_ss.worksheet(wks_title).get_all_values()
+
+            tmp_dict, tmp_str = self._parse_menu(curr_wks, max_width)
+
+            curr_menu_dict_input_pipe.send(tmp_dict)
+            curr_menu_str_input_pipe.send(tmp_str)
+
+            curr_ss_title = ss_title
+            curr_wks_title = wks_title
+        
+            
+        
+    def __init__(self,
+                 main_term_h,
+                 main_term_w,
+                 main_term_y,
+                 main_term_x,
+                 main_menu_ss_title='terminal_menus',
+                 main_menu_wks_title='basic_menu',
+    ):
+        """Init function TODO this docstring."""
+        print "trying to init the curses new window for MainTerminal."
+        self.main_term = curses.newwin(main_term_h, main_term_w,
+                                       main_term_y, main_term_x)
+        print "made the new MainTerminal window"
+        self.main_term_h = main_term_h
+        self.main_term_w = main_term_w
+
+        self.main_menu_ss_title = main_menu_ss_title
+        self.main_menu_wks_title = main_menu_wks_title
+        
+        self.curr_ss_title = main_menu_ss_title
+        # self.curr_ss = self.gc.open(self.curr_ss_title)
+        self.curr_wks_title = self.main_menu_wks_title
+        
+        self.curr_menu_dict = {}
+        self.curr_menu_str = ""
+
+        self.ss_title_output_pipe, self.ss_title_input_pipe = Pipe()
+        self.wks_title_output_pipe, self.wks_title_input_pipe = Pipe()
+
+        self.curr_menu_dict_output_pipe, self.curr_menu_dict_input_pipe = Pipe()
+        self.curr_menu_str_output_pipe, self.curr_menu_str_input_pipe = Pipe()
+
+        
+        # Now, I create a thread to manage all the loading of spreadsheets
+        self.menu_spreadsheet_process = Process(
+            target=self.menu_spreadsheet,
+            args=(
+                self.ss_title_output_pipe,
+                self.wks_title_output_pipe,
+                self.curr_menu_dict_input_pipe,
+                self.curr_menu_str_input_pipe,
+                self.main_term_w-1,
+            )
+        )
+        self.menu_spreadsheet_process.start()
+
+        
+    def parse_menu(
+            self,
+            wks_title=None,
+            ss_title=None,
+            max_width=None,
+    ):
+        """A wrapper for parsing the menu so I can farm it out to a process. """
+
+        # Wipe the menu so it won't accept commands anymore
+        self.curr_menu_dict = {}
+
+        max_y, max_x = self.main_term.getmaxyx()
+        self.curr_menu_str = "\n"*(max_y/2) + " "*((max_x)/2-7) + "Loading menu..."
+        # self.curr_menu_str = str(self.main_term.getmaxyx())
+
+        if wks_title == None:
+            wks_title = self.main_menu_wks_title
+        else:
+            self.curr_wks_title = wks_title
+
+        if ss_title == None:
+            ss_title=self.main_menu_ss_title
+        elif ss_title != self.curr_ss_title:
+            self.curr_ss_title = ss_title
+        else:
+            # You should never get here
+            pass
+
+        self.ss_title_input_pipe.send(ss_title)
+        self.wks_title_input_pipe.send(wks_title)
+
+        # elif ss_title != self.curr_ss_title:
+        #     self.curr_ss_title = ss_title
+        #     self.curr_ss = gc.open(spreadsheet_title)
+        # else:
+        #     # If the program is here, it should be because the
+        #     # ss_title was not defined, or its the same as the
+        #     # curr_ss
+        #     pass
+
+        # if max_width == None:
+        #     max_width = self.main_term_w-1
+            
+            
+        # tmp_menu_list = self.curr_ss.worksheet(self.curr_wks_title).get_all_values()
+        
+        # TODO get the tricky business of loading the menu to happen
+        # behind the scenes.
+
+        # This doesn't work (I think) because the new process doesn't
+        # get a proper copy of itself
+
+        # Start the process of getting a new menu up and running
+        # p = Process(target=self._parse_menu,
+        #             args=(
+        #                 tmp_menu_list,
+        #                 max_width,
+        #                 self.curr_menu_dict_input_pipe,
+        #                 self.curr_menu_str_input_pipe,
+        #             )
+        #         )
+        # p.start()
+
 
     def redraw(self):
         """Erases and noutrefreshes terminal."""
+        if self.curr_menu_str_output_pipe.poll():        
+            self.curr_menu_str = self.curr_menu_str_output_pipe.recv()
+        if self.curr_menu_dict_output_pipe.poll():
+            self.curr_menu_dict = self.curr_menu_dict_output_pipe.recv()
+
         self.main_term.erase()
-        self.main_term.addstr(0, 0, self.current_menu_str)
+        self.main_term.addstr(0, 0, self.curr_menu_str)
         self.main_term.noutrefresh()
 
-    def current_options(self):
-        """Returns current options available in form of a dictionary."""
+    def kill_menu_spreadsheet_process():
+        """Simple. Does what it says. """
+        self.ss_title_input_pipe.send("BREAK")
+        self.menu_spreadsheet_process.join()
 
-        tmp_dict = {}
-        for i in self.current_menu_dict.keys():
-            # TODO make this extract the number from the string
-            if i.find("option_") != 1:
-                tmp_dict[i] = self.current_menu_dict[i]
 
-        return tmp_dict
+    # def curr_options(self):
+    #     """Returns curr options available in form of a dictionary."""
+
+    #     tmp_dict = {}
+    #     for i in self.curr_menu_dict.keys():
+    #         # TODO make this extract the number from the string
+    #         if i.find("option_") != 1:
+    #             tmp_dict[i] = self.curr_menu_dict[i]
+
+    #     return tmp_dict
 
         
+
+    

@@ -112,9 +112,13 @@ def gui_that_ticks(_joe):
     # main_term_string = ""
     # main_term.addstr(0, 0, main_term_string)
     visible_menu_dict = {}
+
+    main_term.parse_menu()
+    
     while True:
         c = stdscr.getch()
         if c == ord('q'):
+            del(main_term)
             curses.nocbreak()
             stdscr.keypad(0)
             curses.echo()
@@ -127,7 +131,7 @@ def gui_that_ticks(_joe):
             if c == ord(str(i)):
                 try:
                     main_term.parse_menu(
-                        wks_title=main_term.current_menu_dict['option_' + str(i)]['action']
+                        wks_title=main_term.curr_menu_dict['option_' + str(i)]['action']
                     )
                 except KeyError:
                     pass
