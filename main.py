@@ -44,12 +44,6 @@ def get_news(news_ticker_input_pipe, gc, max_news_items=3):
 
     news_ticker_input_pipe.send_bytes(" ".join(tmp_list) + " ")
 
-def get_menu(menu_input_pipe, gc):
-    """A simple function to fetch a menu. """
-    pass
-    
-              
-        
 
 def gui_that_ticks(_joe):
     """Gui refreshing."""
@@ -113,12 +107,12 @@ def gui_that_ticks(_joe):
     # main_term.addstr(0, 0, main_term_string)
     visible_menu_dict = {}
 
-    main_term.parse_menu()
+    # main_term.parse_menu()
     
     while True:
         c = stdscr.getch()
         if c == ord('q'):
-            del(main_term)
+            main_term.kill_menu_ss_process()
             curses.nocbreak()
             stdscr.keypad(0)
             curses.echo()

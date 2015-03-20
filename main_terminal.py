@@ -2,11 +2,7 @@ import curses
 import gspread
 from google_credentials import username, password
 from textwrap import fill
-from multiprocessing import Pipe, Process
-
-
-# TODO: Figure out how to terminate a thread that is waiting for input from a pipe.
-
+from multiprocessing import Pipe, Process, Event
 
 class MainTerminal:
     """Class to manage the loading and refreshing of the main terminal."""
@@ -46,38 +42,51 @@ class MainTerminal:
         # self.curr_menu_str = tmp_str
 
     
-    def menu_spreadsheet(
+    def menu_ss(
             self,
             ss_title_output_pipe,
             wks_title_output_pipe,
             curr_menu_dict_input_pipe,
             curr_menu_str_input_pipe,
+            menu_ss_event,
+            menu_ss_kill_event,
             max_width=79,
     ):
 
         gc = gspread.login(username, password)
         curr_ss_title = ""
         curr_wks_title = ""
+
         while True:
-            ss_title = ss_title_output_pipe.recv()
-            wks_title = wks_title_output_pipe.recv()
+            if (menu_ss_event.is_set() and
+                ss_title_output_pipe.poll() and
+                wks_title_output_pipe.poll()):
+
+                ss_title = ss_title_output_pipe.recv()
+                wks_title = wks_title_output_pipe.recv()
 
 
-            # If the spreadsheet title is different, load it up again
-            if ss_title != curr_ss_title:
-                curr_ss = gc.open(ss_title)
+                # If the spreadsheet title is different, load it up again
+                if ss_title != curr_ss_title:
+                    curr_ss = gc.open(ss_title)
 
-            if wks_title != curr_wks_title:
-                curr_wks = curr_ss.worksheet(wks_title).get_all_values()
+                if wks_title != curr_wks_title:
+                    curr_wks = curr_ss.worksheet(wks_title).get_all_values()
 
-            tmp_dict, tmp_str = self._parse_menu(curr_wks, max_width)
+                tmp_dict, tmp_str = self._parse_menu(curr_wks, max_width)
 
-            curr_menu_dict_input_pipe.send(tmp_dict)
-            curr_menu_str_input_pipe.send(tmp_str)
+                curr_menu_dict_input_pipe.send(tmp_dict)
+                curr_menu_str_input_pipe.send(tmp_str)
 
-            curr_ss_title = ss_title
-            curr_wks_title = wks_title
-        
+                curr_ss_title = ss_title
+                curr_wks_title = wks_title
+
+                menu_ss_event.clear()
+
+        ss_title_output_pipe.close()
+        wks_title_output_pipe.close()
+        curr_menu_dict_input_pipe.close()
+        curr_menu_str_input_pipe.close()
             
         
     def __init__(self,
@@ -112,19 +121,25 @@ class MainTerminal:
         self.curr_menu_dict_output_pipe, self.curr_menu_dict_input_pipe = Pipe()
         self.curr_menu_str_output_pipe, self.curr_menu_str_input_pipe = Pipe()
 
+        self.menu_ss_event = Event()
+        self.menu_ss_kill_event = Event()
+        self.menu_ss_kill_event.clear()
+
         
         # Now, I create a thread to manage all the loading of spreadsheets
-        self.menu_spreadsheet_process = Process(
-            target=self.menu_spreadsheet,
+        self.menu_ss_process = Process(
+            target=self.menu_ss,
             args=(
                 self.ss_title_output_pipe,
                 self.wks_title_output_pipe,
                 self.curr_menu_dict_input_pipe,
                 self.curr_menu_str_input_pipe,
+                self.menu_ss_event,
+                self.menu_ss_kill_event,
                 self.main_term_w-1,
             )
         )
-        self.menu_spreadsheet_process.start()
+        self.menu_ss_process.start()
 
         
     def parse_menu(
@@ -158,37 +173,9 @@ class MainTerminal:
         self.ss_title_input_pipe.send(ss_title)
         self.wks_title_input_pipe.send(wks_title)
 
-        # elif ss_title != self.curr_ss_title:
-        #     self.curr_ss_title = ss_title
-        #     self.curr_ss = gc.open(spreadsheet_title)
-        # else:
-        #     # If the program is here, it should be because the
-        #     # ss_title was not defined, or its the same as the
-        #     # curr_ss
-        #     pass
+        # When the pipes are full, tell the thread it's safe to proceed
+        self.menu_ss_event.set()
 
-        # if max_width == None:
-        #     max_width = self.main_term_w-1
-            
-            
-        # tmp_menu_list = self.curr_ss.worksheet(self.curr_wks_title).get_all_values()
-        
-        # TODO get the tricky business of loading the menu to happen
-        # behind the scenes.
-
-        # This doesn't work (I think) because the new process doesn't
-        # get a proper copy of itself
-
-        # Start the process of getting a new menu up and running
-        # p = Process(target=self._parse_menu,
-        #             args=(
-        #                 tmp_menu_list,
-        #                 max_width,
-        #                 self.curr_menu_dict_input_pipe,
-        #                 self.curr_menu_str_input_pipe,
-        #             )
-        #         )
-        # p.start()
 
 
     def redraw(self):
@@ -202,23 +189,11 @@ class MainTerminal:
         self.main_term.addstr(0, 0, self.curr_menu_str)
         self.main_term.noutrefresh()
 
-    def kill_menu_spreadsheet_process():
-        """Simple. Does what it says. """
-        self.ss_title_input_pipe.send("BREAK")
-        self.menu_spreadsheet_process.join()
-
-
-    # def curr_options(self):
-    #     """Returns curr options available in form of a dictionary."""
-
-    #     tmp_dict = {}
-    #     for i in self.curr_menu_dict.keys():
-    #         # TODO make this extract the number from the string
-    #         if i.find("option_") != 1:
-    #             tmp_dict[i] = self.curr_menu_dict[i]
-
-    #     return tmp_dict
-
-        
-
-    
+    def kill_menu_ss_process():
+        """Simple. Does what it says."""
+        # signal it's time to kill the thread
+        menu_ss_kill_event.set()
+        import time
+        time.sleep(10)
+        menu_ss_process.terminate()
+        menu_ss_process.join()
