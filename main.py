@@ -7,6 +7,7 @@ casual RPG use.
 import curses
 from linewindows import create_hline_window, create_vline_window
 from main_terminal import MainTerminal
+from main_window import MainWindow
 from time import sleep
 from random import randint
 from google_credentials import username, password
@@ -76,7 +77,7 @@ def gui_that_ticks(_joe):
     clock = curses.newwin(clock_h, clock_w, clock_y, clock_x,)
     news_ticker = curses.newwin(news_ticker_h, news_ticker_w,
                                 news_ticker_y, news_ticker_x,)
-    main_term = MainTerminal(main_term_h, main_term_w, main_term_y,
+    main_term = MainWindow(main_term_h, main_term_w, main_term_y,
                              main_term_x,)
     
 
@@ -108,23 +109,28 @@ def gui_that_ticks(_joe):
     visible_menu_dict = {}
 
     # main_term.parse_menu()
-    
+    hold_the_news_int = 0
     while True:
         c = stdscr.getch()
         if c == ord('q'):
-            main_term.kill_menu_ss_process()
+            main_term.menu_processor.shutdown()
+            while main_term.menu_processor.is_alive():
+                print "Waiting for update_process to stop."
             curses.nocbreak()
             stdscr.keypad(0)
             curses.echo()
             curses.endwin()
             break
         elif c == ord('h'):
-            main_term.parse_menu()
+            pass
+            main_term.fetch_menu()
 
         for i in range(1,10):
+            # TODO: fix this to work with the new main_term
+            # pass
             if c == ord(str(i)):
                 try:
-                    main_term.parse_menu(
+                    main_term.fetch_menu(
                         wks_title=main_term.curr_menu_dict['option_' + str(i)]['action']
                     )
                 except KeyError:
@@ -153,8 +159,12 @@ def gui_that_ticks(_joe):
             
         if iter % 1 == 0:
             # News ticker action
-            news = news[1:] + news[0]
-            news_ticker.addstr(0,1,news[:news_ticker_w-2])
+            if hold_the_news_int < 0:
+                news = news[1:] + news[0]
+            else:
+                hold_the_news_int -= 1
+                
+            news_ticker.addstr(0,1,news[:news_ticker_w-2])            
             news_ticker.noutrefresh()
 
         if iter % 100 == 0:
@@ -178,6 +188,8 @@ def gui_that_ticks(_joe):
             if latest_news != previous_news:
                 news = latest_news
                 previous_news = latest_news
+                hold_the_news_int = 30
+
 
 
         # 10 000 iterations means about 15 minutes

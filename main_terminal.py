@@ -33,13 +33,7 @@ class MainTerminal:
         for i, j in enumerate(tmp_menu_options, start=1):
             tmp_str += str(i)  + ") " + tmp_menu_dict[j]['description'] + "\n"
 
-        # Assign the new variables
         return (tmp_menu_dict, tmp_str)
-        # dict_input_pipe.send(tmp_menu_dict)
-        # str_input_pipe.send(tmp_str)
-
-        # self.curr_menu_dict = tmp_menu_dict
-        # self.curr_menu_str = tmp_str
 
     
     def menu_ss(
